@@ -1,13 +1,6 @@
-# Ignore temporary Python script files created during execution
-temp_script.py
-
-# Ignore Python's automatic cache files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Ignore local virtual environments (if you use them later)
+*.py[cod]
 .venv/
-env/
-venv/
+data/*.db
+data/*.db-shm
+data/*.db-wal

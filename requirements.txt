@@ -1,0 +1,4 @@
+customtkinter
+ollama
+Pillow
+pyttsx3
