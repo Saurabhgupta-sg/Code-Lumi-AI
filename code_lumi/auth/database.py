@@ -12,13 +12,15 @@ import hmac
 import re
 import secrets
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 
-APP_DIR = Path(__file__).resolve().parent
-DEFAULT_DATABASE_PATH = APP_DIR / "data" / "code_lumi.db"
-SCHEMA_PATH = APP_DIR / "schema.sql"
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_DATABASE_PATH = PROJECT_DIR / "data" / "code_lumi.db"
+SCHEMA_PATH = PROJECT_DIR / "schema.sql"
 PASSWORD_ITERATIONS = 600_000
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,30}$")
@@ -55,11 +57,25 @@ class UserDatabase:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=10)
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a database connection and always close it afterward."""
+
+        connection = sqlite3.connect(
+            self.database_path,
+            timeout=10,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         schema = SCHEMA_PATH.read_text(encoding="utf-8")

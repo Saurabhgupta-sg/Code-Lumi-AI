@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from auth_database import AuthenticatedUser, UserDatabase
+from code_lumi.auth.database import AuthenticatedUser, UserDatabase
 
 
 ACCENT = "#6C63FF"
