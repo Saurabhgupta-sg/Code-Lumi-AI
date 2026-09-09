@@ -1,215 +1,269 @@
-Code Lumi AI
+# Code Lumi AI
 
-Code Lumi AI is a fullscreen desktop coding environment built with Python and
-CustomTkinter. It combines a multi-language editor, local AI explanations,
-text-to-speech, Python execution visualization, secure user authentication, and
-administrator account management.
+Code Lumi AI is a fullscreen desktop coding environment designed to help students write, run, visualize, and understand code. It combines a multi-language editor, local AI explanations, Python execution tracing, text-to-speech, secure user authentication, and administrator account management.
 
-Features
+This project is currently in an early development phase.
 
-Authentication and security
+## Current Features
 
-Fullscreen login and sign-up interface
+### Authentication and Security
 
-SQLite user database created automatically
+* Fullscreen login and signup interface
+* SQLite user database created automatically
+* Password hashing using PBKDF2-HMAC-SHA256
+* Unique random salt for every password
+* Login using either username or email
+* Username, email, and password validation
+* Automatic application closure when focus is lost
+* Local database files excluded from Git
+* Student and administrator roles
 
-Passwords protected with PBKDF2-HMAC-SHA256 and individual random salts
+### Administrator Controls
 
-Login using either username or email
+* The first account created becomes an administrator
+* Existing installations promote the earliest account if no administrator exists
+* Fullscreen user-management page
+* Create standard or administrator accounts
+* Change user passwords
+* Delete user accounts
+* Prevent deletion of the currently signed-in administrator
+* Prevent deletion of the final administrator
+* Database-level administrator permission checks
 
-Username, email, and password validation
+### Coding Tools
 
-Automatic close when the application loses focus
+* Standard code editor
+* Python notebook-style cells
+* Open and save source files
+* Run code from inside the application
+* HTML preview in the default browser
+* Python line-by-line execution tracing
+* Variable-name, value, and type visualization
+* Dark and light interface themes
 
-Local database files excluded from Git through .gitignore
+The editor currently includes language options for:
 
-Administrator controls
+* Python
+* Python notebook mode
+* JavaScript
+* C
+* C++
+* Java
+* HTML/CSS
+* C#
 
-The first account in a new database becomes the administrator
+C# appears in the interface but its execution runner has not yet been implemented.
 
-Existing installations automatically promote the earliest account to admin
+### AI and Accessibility
 
-Fullscreen Manage Users page for administrators
+* Local code explanations through Ollama
+* Beginner-friendly runtime and compilation error explanations
+* Structured error responses containing:
 
-Add standard users or additional administrators
+  * The likely offending line
+  * A plain-language explanation
+  * A helpful hint
+* Error-line highlighting in the editor
+* General code explanations through **Ask Code Lumi**
+* Text-to-speech output using `pyttsx3`
+* Optional animated mascot support
+* `qwen2.5-coder:1.5b` used as the default Ollama model
 
-Change the password of any user
+## Requirements
 
-Delete user accounts
+* Python 3.10 or newer
+* pip
+* Ollama for AI explanations
+* Node.js for JavaScript execution
+* GCC for C execution
+* G++ for C++ execution
+* JDK for Java execution
 
-Protection against deleting the currently signed-in administrator
+Node.js, GCC, G++, and the JDK are optional if only Python will be used.
 
-Normal users cannot access administrator database operations
+## Installation
 
-Coding tools
+### 1. Clone or open the repository
 
-Editors for Python, C, C++, Java, JavaScript, HTML/CSS, and C# files
+Open the `Code-Lumi-AI` project folder in Visual Studio Code.
 
-Jupyter-style Python notebook cells
+### 2. Create a virtual environment
 
-Open, edit, and save source files
+On Windows PowerShell:
 
-Run supported code from inside the application
-
-HTML preview in the default browser
-
-Python line-by-line execution animation with variable visualization
-
-Dark and light themes
-
-AI and accessibility
-
-Local code explanations through Ollama
-
-Beginner-friendly error explanations
-
-Text-to-speech output using pyttsx3
-
-Optional animated mascot.gif
-
-Uses the qwen2.5-coder:1.5b Ollama model by default
-
-Requirements
-
-Python 3.10 or newer
-
-pip
-
-Ollama for AI explanations
-
-Node.js for JavaScript execution
-
-GCC/G++ for C and C++ execution
-
-JDK for Java execution
-
-The extra language tools are optional if you only plan to use Python.
-
-Installation in VS Code
-
-Clone or open the Code-Lumi-AI repository in VS Code.
-
-Open Terminal > New Terminal.
-
-Create a virtual environment.
-
-Windows PowerShell
-
+```powershell
 py -m venv .venv
 .venv\Scripts\Activate.ps1
+```
 
-macOS or Linux
+On macOS or Linux:
 
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
 
-Install the Python dependencies.
+### 3. Install Python dependencies
 
+```bash
 pip install -r requirements.txt
+```
 
-Install the Ollama model used by the application.
+### 4. Install the Ollama model
 
+Install Ollama, then download the model used by Code Lumi AI:
+
+```bash
 ollama pull qwen2.5-coder:1.5b
+```
 
-Start Code Lumi AI.
+Ensure the Ollama service is running before using the AI features.
 
-python vizardPy.py
+### 5. Start Code Lumi AI
 
-First login and administrator access
+Run this command from the project root:
 
-On a fresh installation, select Sign up and create the first account. That
-account automatically receives the admin role.
+```bash
+python main.py
+```
 
-For an existing database created before administrator support was added, the
-earliest registered account is promoted automatically. Its username and
-password do not change.
+## First Account and Administrator Access
 
-After signing in as an administrator, click Manage Users in the top bar to:
+On a new installation:
 
-Add a user or another administrator.
+1. Open the signup page.
+2. Create the first account.
+3. The first account automatically receives the `admin` role.
+4. Sign in using the new account.
+5. Select **Manage Users** to open the administrator interface.
 
-Change a user's password.
+An administrator can:
 
-Delete an account.
+* Review registered accounts
+* Create new users
+* Create additional administrators
+* Change user passwords
+* Delete eligible accounts
 
-Review all registered accounts and roles.
+## Database
 
-Database
+The SQLite database is stored at:
 
-The SQLite database is created automatically at:
-
+```text
 data/code_lumi.db
+```
 
-The table definitions are stored in schema.sql. Database upgrades, including
-the administrator role, are applied automatically by auth_database.py.
+The database schema is defined in:
 
-Do not commit the database file to GitHub because it contains account records.
-The supplied .gitignore excludes it by default.
+```text
+schema.sql
+```
 
-Keyboard shortcuts
+Database initialization and migrations are handled by:
 
-Shortcut
+```text
+code_lumi/auth/database.py
+```
 
-Action
+The runtime database must not be committed because it contains account information and password hashes.
 
-F2
+The following database files are excluded through `.gitignore`:
 
-Save the current file
+```text
+data/*.db
+data/*.db-shm
+data/*.db-wal
+```
 
-F3
+## Keyboard Shortcuts
 
-Open a file
+| Shortcut        | Action                        |
+| --------------- | ----------------------------- |
+| `F2`            | Save the current file         |
+| `F3`            | Open a file                   |
+| `Alt + F9`      | Run the current code          |
+| `Shift + Enter` | Run the current notebook cell |
 
-Alt+F9
+## Project Structure
 
-Run the current code
-
-Project structure
-
+```text
 Code-Lumi-AI/
-├── vizardPy.py                 # Main fullscreen desktop application
-├── login_signup.py             # Login and sign-up frontend
-├── auth_database.py            # Authentication and administrator SQL logic
-├── schema.sql                  # SQLite schema
-├── requirements.txt            # Python dependencies
+├── main.py
+├── code_lumi/
+│   ├── __init__.py
+│   ├── analyzer/
+│   │   ├── __init__.py
+│   │   └── ollama_analyzer.py
+│   ├── auth/
+│   │   ├── __init__.py
+│   │   └── database.py
+│   ├── execution/
+│   │   ├── __init__.py
+│   │   ├── runner.py
+│   │   └── tracer.py
+│   └── ui/
+│       ├── __init__.py
+│       ├── admin_page.py
+│       ├── animation_page.py
+│       ├── login_window.py
+│       └── main_window.py
+├── data/
+│   └── code_lumi.db
 ├── tests/
-│   └── test_auth_database.py   # Authentication and admin tests
-├── data/                       # Runtime database location
-└── mascot.gif                  # Optional animated mascot
+│   └── test_auth_database.py
+├── schema.sql
+├── requirements.txt
+├── README.md
+├── .gitignore
+└── .gitattributes
+```
 
-Run the tests
+## Component Responsibilities
 
-From the project root, run:
+| Component                     | Responsibility                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| `main.py`                     | Starts the application                                                         |
+| `ui/main_window.py`           | Main editor, notebook, navigation, file handling, speech, and session behavior |
+| `ui/login_window.py`          | Login and signup interface                                                     |
+| `ui/admin_page.py`            | Administrator-page widgets                                                     |
+| `ui/animation_page.py`        | Execution-animation widgets                                                    |
+| `auth/database.py`            | Authentication, password hashing, roles, and user persistence                  |
+| `execution/runner.py`         | Multi-language code execution                                                  |
+| `execution/tracer.py`         | Python line and variable tracing                                               |
+| `analyzer/ollama_analyzer.py` | Ollama prompts and structured AI responses                                     |
+| `schema.sql`                  | SQLite user-table definition                                                   |
 
+## Running Tests
+
+Run the test suite from the project root:
+
+```bash
 python -m unittest discover -s tests -v
+```
 
-The tests verify:
+The current tests verify:
 
-Sign-up and login
+* Account creation and login
+* Duplicate-account rejection
+* Incorrect-password rejection
 
-Duplicate-account rejection
+## Current Limitations
 
-Incorrect-password rejection
+Code Lumi AI is still under development.
 
-Administrator user creation
+Current limitations include:
 
-Administrator password changes and deletion
+* Student code is executed locally without a secure operating-system sandbox
+* Execution does not currently enforce time or memory limits
+* Long-running programs can make the interface unresponsive
+* Python tracing currently focuses on executed lines and local variables
+* Notebook cells do not share a persistent Python session
+* C# execution is not implemented
+* Tutorials, assignments, scoring, and rankings are not implemented
+* Fullscreen and focus monitoring do not provide complete examination security
 
-Permission denial for standard users
+## Important Security Notice
 
-Self-deletion protection
+Code entered in the editor is executed locally on the computer running Code Lumi AI.
 
-Push updates to GitHub
-
-After replacing the updated project files, run:
-
-git add .
-git commit -m "Update authentication, admin controls and documentation"
-git pull --rebase
-git push
-
-Important security note
-
-Code entered in the editor is executed locally on your computer. Only run code
-you trust. The application's execution environment is not a security boundary
-for untrusted programs.
+Only run code from trusted sources. The current execution environment is not a security boundary for untrusted programs.

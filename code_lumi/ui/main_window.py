@@ -3,17 +3,20 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 import subprocess
 import os
-import tempfile
-import ollama
-import webbrowser
-import ast
 import pyttsx3
 import threading
 import sys
 from PIL import Image, ImageTk
-from auth_database import UserDatabase
-from login_signup import show_auth_window
+from pathlib import Path
+from code_lumi.ui.admin_page import AdminPage
+from code_lumi.ui.animation_page import AnimationPage
+from code_lumi.execution.tracer import trace_python
+from code_lumi.execution.runner import execute_code
+from code_lumi.analyzer.ollama_analyzer import analyze_error, explain_code
+from code_lumi.auth.database import UserDatabase
+from code_lumi.ui.login_window import show_auth_window
 
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 # --- MODERN THEME SETUP ---
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -73,8 +76,7 @@ def load_gif_frames():
     global gif_frames
     gif_frames = []
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        mascot_path = os.path.join(script_dir, "mascot.gif")
+        mascot_path = PROJECT_DIR / "mascot.gif"
         if os.path.exists(mascot_path):
             with Image.open(mascot_path) as im:
                 im.seek(0)
@@ -120,86 +122,120 @@ def speak_text(text, mascot_label):
     else:
         display_to_console("TTS unavailable.\n\n" + text)
 
-def get_friendly_error_explanation(lang, code, raw_error):
+def highlight_error_line(line_no):
+    """Highlights the offending line in the standard code editor, red-on-white,
+    similar to the yellow 'currently running' highlight used in the animator."""
     try:
-        prompt = f"Explain this {lang} error simply for a beginner: {raw_error}. The code is:\n```{lang}\n{code}\n```. Give a 'What went wrong' and a 'How to fix it' section."
-        response = ollama.chat(model='qwen2.5-coder:1.5b', messages=[{'role': 'user', 'content': prompt}])
-        explanation = response['message']['content']
-        speak_text(explanation, mascot_label)
-        return explanation
-    except Exception as e:
-        return f"AI Error: {e}\nRaw Error:\n{raw_error}"
+        standard_editor.tag_remove("error_highlight", "1.0", "end")
+        if not line_no:
+            return
+        standard_editor.tag_add("error_highlight", f"{line_no}.0", f"{line_no}.end")
+        standard_editor.tag_config("error_highlight", background="#f14c4c", foreground="white")
+        standard_editor.see(f"{line_no}.0")
+    except Exception:
+        pass  # editor may not exist yet (e.g. called before UI is built)
+
+def get_friendly_error_explanation(lang, code, raw_error):
+    """Analyze an error and display the result in the current UI."""
+
+    try:
+        analysis = analyze_error(
+            language=lang,
+            code=code,
+            raw_error=raw_error,
+        )
+
+        highlight_error_line(analysis.issue_line)
+
+        if analysis.explanation:
+            speak_text(analysis.explanation, mascot_label)
+
+        return analysis.display_text
+
+    except Exception as error:
+        return f"AI Error: {error}\nRaw Error:\n{raw_error}"
 
 def explain_standard_code():
+    """Explain the code currently displayed in the editor."""
+
     code = standard_editor.get("1.0", "end-1c").strip()
-    if not code: return
-    display_to_console("🤖 Code Lumi AI is thinking...")
-    root.update()
-    try:
-        prompt = f"Explain what this {current_language} code does in one simple sentence.\n\n```{current_language}\n{code}\n```"
-        response = ollama.chat(model='qwen2.5-coder:1.5b', messages=[{'role': 'user', 'content': prompt}])
-        explanation = response['message']['content']
-        display_to_console(f"🤖 Code Lumi AI says:\n\n{explanation}")
-        speak_text(explanation, mascot_label)
-    except Exception as e: 
-        display_to_console(f"AI Error: {e}")
-
-# --- NEW: IN-APP LIVE CODE ANIMATOR ---
-def trace_lines(frame, event, arg):
-    """Snapshot the code execution line-by-line."""
-    # Only trace code that comes from our '<string>' execution
-    if event == "line" and "<string>" in frame.f_code.co_filename:
-        local_vars = {}
-        for k, v in frame.f_locals.items():
-            if not k.startswith('__'):
-                # Store the value and the type to make cute icons!
-                local_vars[k] = {"value": repr(v), "type": type(v).__name__}
-        
-        execution_trace.append({
-            "line": frame.f_lineno,
-            "vars": local_vars
-        })
-    return trace_lines
-
-def start_code_animation():
-    """Traces code and opens the internal visual player."""
-    if current_language not in ["Python", "Python (.ipynb)"]:
-        messagebox.showwarning("Not Supported", "Animation is only for Python!")
+    if not code:
         return
 
-    code = standard_editor.get("1.0", "end-1c").strip()
-    if not code: return
+    display_to_console("🤖 Code Lumi AI is thinking...")
+    root.update()
+
+    try:
+        explanation = explain_code(
+            language=current_language,
+            code=code,
+        )
+
+        display_to_console(f"🤖 Code Lumi AI says:\n\n{explanation}")
+        speak_text(explanation, mascot_label)
+
+    except Exception as error:
+        display_to_console(f"AI Error: {error}")
+
+# --- NEW: IN-APP LIVE CODE ANIMATOR ---
+
+def start_code_animation():
+    """Generate a Python trace and open the animation player."""
+
+    if current_language not in [
+        "Python",
+        "Python (.ipynb)",
+    ]:
+        messagebox.showwarning(
+            "Not Supported",
+            "Animation is only available for Python!",
+        )
+        return
+
+    code = standard_editor.get(
+        "1.0",
+        "end-1c",
+    ).strip()
+
+    if not code:
+        return
 
     global execution_trace, is_animating
     execution_trace = []
-    
-    # Run code silently and trace it
+
     try:
-        compiled_code = compile(code, '<string>', 'exec')
-        sys.settrace(trace_lines)
-        exec(compiled_code, {})
-    except Exception as e:
-        messagebox.showerror("Error", f"Animation stopped due to code error: {e}")
+        execution_trace = trace_python(code)
+
+    except Exception as error:
+        messagebox.showerror(
+            "Error",
+            f"Animation stopped due to code error: {error}",
+        )
         return
-    finally:
-        sys.settrace(None)
 
     if not execution_trace:
-        messagebox.showinfo("Info", "No executable steps found in the code.")
+        messagebox.showinfo(
+            "Info",
+            "No executable steps were found in the code.",
+        )
         return
 
-    # Switch to the Animation Page!
     page2_editor.pack_forget()
-    page4_animation.pack(fill="both", expand=True)
-    
+    page4_animation.pack(
+        fill="both",
+        expand=True,
+    )
+
     anim_code_display.configure(state="normal")
     anim_code_display.delete("1.0", "end")
     anim_code_display.insert("1.0", code)
     anim_code_display.configure(state="disabled")
-    
-    # Start mascot if available
+
     if gif_frames:
-        anim_mascot_label.place(relx=0.85, rely=0.05)
+        anim_mascot_label.place(
+            relx=0.85,
+            rely=0.05,
+        )
         update_animation(anim_mascot_label)
 
     is_animating = True
@@ -225,8 +261,8 @@ def play_trace_step(step_index):
         return
 
     step = execution_trace[step_index]
-    line_no = step["line"]
-    variables = step["vars"]
+    line_no = step.line
+    variables = step.variables
 
     # 1. Highlight Code Line (Yellow Video Style)
     anim_code_display.tag_remove("highlight", "1.0", "end")
@@ -261,57 +297,32 @@ def play_trace_step(step_index):
 
 # --- EXECUTION ENGINE (Standard Run) ---
 def execute_code_in_memory(lang, code):
-    if not code.strip(): return "Error: No code to run."
-    try:
-        if lang in ["Python", "Python (.ipynb)"]:
-            try:
-                tree = ast.parse(code)
-                if tree.body and isinstance(tree.body[-1], ast.Expr):
-                    tree.body[-1] = ast.Expr(value=ast.Call(func=ast.Name(id='print', ctx=ast.Load()), args=[tree.body[-1].value], keywords=[]))
-                    code = ast.unparse(tree)
-            except: pass
-            process = subprocess.run(['python', '-c', code], capture_output=True, text=True, encoding='utf-8')
-            if process.stderr: return get_friendly_error_explanation(lang, code, process.stderr)
-            return process.stdout
-        elif lang == "JavaScript":
-            process = subprocess.run(['node', '-e', code], capture_output=True, text=True, encoding='utf-8')
-            if process.stderr: return get_friendly_error_explanation(lang, code, process.stderr)
-            return process.stdout
-        elif lang in ["C", "C++", "Java"]:
-            temp_dir = tempfile.gettempdir()
-            if lang == "Java": temp_src, temp_exe = os.path.join(temp_dir, "TempApp.java"), None
-            else:
-                ext = ".c" if lang == "C" else ".cpp"
-                temp_src, temp_exe = os.path.join(temp_dir, f"temp_code{ext}"), os.path.join(temp_dir, "temp_app.exe")
-            with open(temp_src, "w", encoding="utf-8") as f: f.write(code)
-            output = ""
-            try:
-                if lang == "C":
-                    comp = subprocess.run(['gcc', temp_src, '-o', temp_exe], capture_output=True, text=True, encoding='utf-8')
-                    output = get_friendly_error_explanation(lang, code, comp.stderr) if comp.stderr else subprocess.run([temp_exe], capture_output=True, text=True, encoding='utf-8').stdout
-                elif lang == "C++":
-                    comp = subprocess.run(['g++', temp_src, '-o', temp_exe], capture_output=True, text=True, encoding='utf-8')
-                    output = get_friendly_error_explanation(lang, code, comp.stderr) if comp.stderr else subprocess.run([temp_exe], capture_output=True, text=True, encoding='utf-8').stdout
-                elif lang == "Java":
-                    comp = subprocess.run(['javac', temp_src], capture_output=True, text=True, encoding='utf-8')
-                    output = get_friendly_error_explanation(lang, code, comp.stderr) if comp.stderr else subprocess.run(['java', 'TempApp'], capture_output=True, text=True, cwd=temp_dir, encoding='utf-8').stdout
-            finally:
-                if os.path.exists(temp_src): os.remove(temp_src)
-                if temp_exe and os.path.exists(temp_exe): os.remove(temp_exe)
-                if os.path.exists(os.path.join(temp_dir, "TempApp.class")): os.remove(os.path.join(temp_dir, "TempApp.class"))
-            return output
-        elif lang == "HTML/CSS":
-            temp_src = os.path.join(tempfile.gettempdir(), "temp_preview.html")
-            with open(temp_src, "w", encoding="utf-8") as f: f.write(code)
-            webbrowser.open('file://' + os.path.realpath(temp_src))
-            return "HTML preview opened in default browser."
-    except Exception as e: return f"Execution Error: {e}"
+    """Send code to the independent execution service."""
+
+    return execute_code(
+        language=lang,
+        code=code,
+        explain_error=get_friendly_error_explanation,
+    )
 
 def run_standard_code(event=None):
+    highlight_error_line(None)  # clear any highlight from a previous run
     display_to_console(f"Running {current_language} code...\n" + "-"*30 + "\n")
     root.update()
-    output = execute_code_in_memory(current_language, standard_editor.get("1.0", "end-1c"))
-    display_to_console(output)
+    try:
+        output = execute_code_in_memory(current_language, standard_editor.get("1.0", "end-1c"))
+    except Exception:
+        import traceback
+        traceback.print_exc()  # full traceback goes to the terminal so it's never truly invisible
+        output = "Something went wrong running this code. Check the terminal window for the full error."
+    if not output or not str(output).strip():
+        output = "(No output, and no error was reported.)"
+    try:
+        display_to_console(output)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        display_to_console("Ran, but couldn't render the output. Check the terminal window.")
 
 def display_to_console(text):
     standard_console.configure(state="normal")
@@ -351,7 +362,7 @@ def run_notebook_cell(idx):
     cell["output"].insert("end", "Running...")
     cell["output"].configure(state="disabled")
     root.update()
-    result = execute_code_in_memory("Python", code)
+    result = execute_code_in_memory("Python (.ipynb)", code)
     cell["output"].configure(state="normal")
     cell["output"].delete("1.0", "end")
     cell["output"].insert("end", result)
@@ -675,11 +686,11 @@ def logout():
     root.withdraw()
     root.update_idletasks()
 
-    script_path = os.path.abspath(__file__)
+    script_path = PROJECT_DIR / "main.py"
     try:
         subprocess.Popen(
-            [sys.executable, script_path],
-            cwd=os.path.dirname(script_path),
+            [sys.executable, str(script_path)],
+            cwd=str(PROJECT_DIR),
         )
     except Exception as restart_error:
         root.deiconify()
@@ -783,155 +794,36 @@ notebook_scroll_frame = ctk.CTkScrollableFrame(page3_notebook, fg_color=("#efefe
 notebook_scroll_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
 # --- PAGE 4: THE IN-APP ANIMATION PLAYER ---
-page4_animation = ctk.CTkFrame(root, fg_color=APP_BACKGROUND)
+animation_page = AnimationPage(
+    parent=root,
+    background=APP_BACKGROUND,
+    stop_command=exit_animation,
+)
 
-anim_header = ctk.CTkFrame(page4_animation, fg_color=APP_BACKGROUND)
-anim_header.pack(fill="x", padx=20, pady=10)
-ctk.CTkButton(anim_header, text="🛑 Stop & Return", width=120, fg_color="#c0392b", hover_color="#e74c3c", command=exit_animation).pack(side="left")
-anim_status_label = ctk.CTkLabel(anim_header, text="🎬 Live Animation Player", font=("Arial", 20, "bold"), text_color="#f1c40f")
-anim_status_label.pack(side="left", padx=40)
-
-anim_split_frame = ctk.CTkFrame(page4_animation, fg_color=APP_BACKGROUND)
-anim_split_frame.pack(fill="both", expand=True, padx=20, pady=10)
-anim_split_frame.grid_columnconfigure(0, weight=1)
-anim_split_frame.grid_columnconfigure(1, weight=1)
-anim_split_frame.grid_rowconfigure(0, weight=1)
-
-# Left Side: Code
-anim_code_display = ctk.CTkTextbox(anim_split_frame, font=("Consolas", 22), fg_color="#1e1e1e", text_color="white", border_width=2)
-anim_code_display.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-
-# Right Side: Interactive Object Memory
-anim_right_panel = ctk.CTkFrame(anim_split_frame, corner_radius=10, fg_color="#2c3e50")
-anim_right_panel.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-ctk.CTkLabel(anim_right_panel, text="🧠 Active Memory Objects", font=("Arial", 18, "bold")).pack(pady=10)
-anim_memory_frame = ctk.CTkScrollableFrame(anim_right_panel, fg_color="transparent")
-anim_memory_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-# Place Mascot holder in Animation Screen
-anim_mascot_label = ctk.CTkLabel(anim_right_panel, text="", fg_color="transparent")
+# Temporary aliases allow the existing animation functions to keep working.
+page4_animation = animation_page.frame
+anim_status_label = animation_page.status_label
+anim_code_display = animation_page.code_display
+anim_memory_frame = animation_page.memory_frame
+anim_mascot_label = animation_page.mascot_label
 
 # --- PAGE 5: ADMINISTRATOR USER MANAGER ---
-page5_admin = ctk.CTkFrame(root, fg_color=APP_BACKGROUND)
+admin_page = AdminPage(
+    parent=root,
+    background=APP_BACKGROUND,
+    back_command=back_to_selection,
+    refresh_command=refresh_admin_users,
+    add_user_command=admin_add_user,
+)
 
-admin_header = ctk.CTkFrame(page5_admin, fg_color=APP_BACKGROUND)
-admin_header.pack(fill="x", padx=28, pady=(20, 10))
-ctk.CTkButton(
-    admin_header,
-    text="⬅ Back",
-    width=90,
-    command=back_to_selection,
-).pack(side="left")
-ctk.CTkLabel(
-    admin_header,
-    text="Administrator · User Management",
-    font=("Arial", 25, "bold"),
-).pack(side="left", padx=20)
-ctk.CTkButton(
-    admin_header,
-    text="↻ Refresh",
-    width=100,
-    fg_color="#2563eb",
-    hover_color="#3b82f6",
-    command=refresh_admin_users,
-).pack(side="right")
-
-admin_content = ctk.CTkFrame(page5_admin, fg_color=APP_BACKGROUND)
-admin_content.pack(fill="both", expand=True, padx=28, pady=(8, 26))
-
-admin_add_panel = ctk.CTkFrame(
-    admin_content,
-    width=390,
-    fg_color=("#ffffff", "#23283f"),
-    corner_radius=16,
-    border_width=1,
-    border_color=("#d8deea", "#343b5c"),
-)
-admin_add_panel.pack(side="left", fill="y", padx=(0, 14))
-admin_add_panel.pack_propagate(False)
-ctk.CTkLabel(
-    admin_add_panel,
-    text="Add a new user",
-    font=("Arial", 21, "bold"),
-).pack(anchor="w", padx=26, pady=(30, 6))
-ctk.CTkLabel(
-    admin_add_panel,
-    text="Create a standard or administrator account.",
-    text_color=("#64748b", "#a8b0c5"),
-    font=("Arial", 13),
-).pack(anchor="w", padx=26, pady=(0, 20))
-
-admin_username_entry = ctk.CTkEntry(
-    admin_add_panel,
-    placeholder_text="Username",
-    height=44,
-)
-admin_username_entry.pack(fill="x", padx=26, pady=7)
-admin_email_entry = ctk.CTkEntry(
-    admin_add_panel,
-    placeholder_text="Email address",
-    height=44,
-)
-admin_email_entry.pack(fill="x", padx=26, pady=7)
-admin_password_entry = ctk.CTkEntry(
-    admin_add_panel,
-    placeholder_text="Temporary password",
-    show="•",
-    height=44,
-)
-admin_password_entry.pack(fill="x", padx=26, pady=7)
-admin_role_menu = ctk.CTkOptionMenu(
-    admin_add_panel,
-    values=["user", "admin"],
-    height=44,
-)
-admin_role_menu.set("user")
-admin_role_menu.pack(fill="x", padx=26, pady=7)
-ctk.CTkButton(
-    admin_add_panel,
-    text="Add user",
-    height=46,
-    fg_color="#198754",
-    hover_color="#20a366",
-    font=("Arial", 15, "bold"),
-    command=admin_add_user,
-).pack(fill="x", padx=26, pady=(16, 10))
-admin_status_label = ctk.CTkLabel(
-    admin_add_panel,
-    text="",
-    wraplength=330,
-    justify="left",
-    font=("Arial", 13),
-)
-admin_status_label.pack(anchor="w", padx=26, pady=8)
-
-admin_list_panel = ctk.CTkFrame(
-    admin_content,
-    fg_color=("#ffffff", "#23283f"),
-    corner_radius=16,
-    border_width=1,
-    border_color=("#d8deea", "#343b5c"),
-)
-admin_list_panel.pack(side="left", fill="both", expand=True)
-admin_list_header = ctk.CTkFrame(admin_list_panel, fg_color="transparent")
-admin_list_header.pack(fill="x", padx=24, pady=(24, 10))
-ctk.CTkLabel(
-    admin_list_header,
-    text="Registered users",
-    font=("Arial", 21, "bold"),
-).pack(side="left")
-admin_user_count_label = ctk.CTkLabel(
-    admin_list_header,
-    text="0 accounts",
-    text_color=("#64748b", "#a8b0c5"),
-    font=("Arial", 13),
-)
-admin_user_count_label.pack(side="right")
-
-admin_users_scroll = ctk.CTkScrollableFrame(
-    admin_list_panel,
-    fg_color="transparent",
-)
-admin_users_scroll.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+# Temporary aliases allow the existing administrator functions to work.
+page5_admin = admin_page.frame
+admin_username_entry = admin_page.username_entry
+admin_email_entry = admin_page.email_entry
+admin_password_entry = admin_page.password_entry
+admin_role_menu = admin_page.role_menu
+admin_status_label = admin_page.status_label
+admin_user_count_label = admin_page.user_count_label
+admin_users_scroll = admin_page.users_scroll
 
 root.mainloop()

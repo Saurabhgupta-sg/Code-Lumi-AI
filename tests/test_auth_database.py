@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from auth_database import UserDatabase
+from code_lumi.auth.database import UserDatabase
 
 
 class UserDatabaseTests(unittest.TestCase):
